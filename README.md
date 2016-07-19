@@ -30,6 +30,10 @@ When the rank operation is complete, the `db` object will emit an `'ranked'` eve
 
 Retrieve the download count for a given package over a given period where `start` and `end` are standard `Date` objects. If no `end` date is provided, receive just the downloads for the `start` day. The callback will be provided either with an `Error` (including in the case that the package can't be found) or an integer with the count.
 
+### `db.packageCounts(package, start, end, callback)`
+
+Like `db.packageCount()` but provides an array of entries where each entry is a day in the given range. Each element of the array contains an object which has the properties `day` which is a string in the format `YYYY-MM-DD` and `count` which is the total downloads on that day.
+
 ### `db.packageRank(package, callback)`
 
 Retrieve the latest rank for a given package. The callback will be provided either with an `Error` (including in the case that the package can't be found) or an object containing a number of properties related to the rank:

@@ -162,6 +162,24 @@ NpmDownloadDb.prototype.packageCount = function packageCount (pkg, start, end, c
 }
 
 
+NpmDownloadDb.prototype.packageCounts = function packageCounts (pkg, start, end, callback) {
+  var result = []
+
+  this._db.readStream({
+      gte: toKey('count', pkg, moment(start).format('YYYY-MM-DD'))
+    , lte: toKey('count', pkg, moment(end).format('YYYY-MM-DD'))
+  }).on('data', function onData (data) {
+    result.push({ day: data.key.split('~~')[3], count: parseInt(data.value, 10) })
+  }).on('end', function onEnd () {
+    callback && callback(null, result)
+    callback = null
+  }).on('error', function onError (err) {
+    callback && callback(err)
+    callback = null
+  })
+}
+
+
 NpmDownloadDb.prototype.packageRank = function packageRank (pkg, callback) {
   this._db.valueStream({ lte: toKey('rank', pkg, '~'), gte: toKey('rank', pkg, '!'), limit: 1, reverse: true })
     .on('error', function onError (err) {

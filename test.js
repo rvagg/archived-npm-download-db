@@ -107,6 +107,15 @@ function final () {
     assert(count > 10000, 'reasonable count for nan in a day (' + count + ')')
   })
 
+  db.packageCounts('foobar1', moment().utc().add(-11, 'days').toDate(), moment().utc().add(-9, 'days').toDate(), function afterCount (err, counts) {
+    assert.ifError(err)
+    assert.deepEqual([
+        { day: moment().utc().add(-11, 'days').format('YYYY-MM-DD'), count: 0 }
+      , { day: moment().utc().add(-10, 'days').format('YYYY-MM-DD'), count: 100 }
+      , { day: moment().utc().add(-9, 'days').format('YYYY-MM-DD'),  count: 0 }
+    ], counts)
+  })
+
   assert.equal(4, db.allPackages.length, 'correct number of packages')
   assert(db.allPackages.indexOf('foobar1') > -1, 'has foobar1')
   assert.equal(-1, db.allPackages.indexOf('foobar2'), 'does not have foobar2')
