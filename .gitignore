@@ -1,0 +1,3 @@
+__test.db.*
+node_modules
+counts.db

@@ -1,0 +1,22 @@
+{
+  "name": "npm-download-db",
+  "version": "1.0.0",
+  "description": "",
+  "main": "npm-download-db.js",
+  "scripts": {
+    "test": "eslint *.js && node test.js"
+  },
+  "author": "Rod <rod@vagg.org> (http://r.va.gg/)",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "left-pad": "~1.1.1",
+    "moment": "~2.14.1",
+    "npm-download-count-collector": "~1.0.0",
+    "through2": "~2.0.1"
+  },
+  "devDependencies": {
+    "eslint": "~3.1.0",
+    "level": "~1.4.0",
+    "rimraf": "~2.5.3"
+  }
+}
