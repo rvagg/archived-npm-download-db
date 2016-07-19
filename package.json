@@ -1,6 +1,6 @@
 {
   "name": "npm-download-db",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A local store containing npm download counts for all packages, able to provide rankings",
   "main": "npm-download-db.js",
   "scripts": {
