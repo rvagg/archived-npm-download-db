@@ -1,7 +1,7 @@
 {
   "name": "npm-download-db",
   "version": "1.0.0",
-  "description": "",
+  "description": "A local store containing npm download counts for all packages, able to provide rankings",
   "main": "npm-download-db.js",
   "scripts": {
     "test": "eslint *.js && node test.js"
