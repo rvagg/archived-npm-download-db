@@ -97,15 +97,18 @@ NpmDownloadDb.prototype.rank = function rank () {
     var pkg = String(chunk)
 
     self.packageCount(pkg, start, end, function afterCount (err, count) {
-      var key, value
+      var key, value, valueS
 
       if (err)
         return callback(err)
 
       key = toKey('periodTotal', self._rankPeriod, nowS, leftPad(count, 12, '0'), pkg)
-      value = JSON.stringify({ package: pkg, count: count })
+      value = { package: pkg, count: count }
+      if (self.allPackages)
+        value.packageCount = self.allPackages.length
+      valueS = JSON.stringify(value)
 
-      self._db.put(key, value, callback)
+      self._db.put(key, valueS, callback)
     })
   }
 
