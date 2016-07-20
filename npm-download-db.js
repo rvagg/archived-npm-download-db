@@ -77,9 +77,9 @@ NpmDownloadDb.prototype.update = function update (options) {
   }
 
   downloadCountCollector(options)
-    .on('packageError', this.emit.bind(this, 'packageError'))
+    .on('packageError', self.emit.bind(this, 'packageError'))
     .on('packageData', packageData)
-    .on('error', this.emit.bind(this, 'error'))
+    .on('error', self.emit.bind(this, 'error'))
     .on('finish', finish)
 }
 
@@ -93,6 +93,29 @@ NpmDownloadDb.prototype.rank = function rank () {
     , batchSize = 0
     , prevEntry
 
+  function clean (callback) {
+    var batch = self._db.batch()
+      , i     = 0
+
+    self._db.keyStream({ gt: toKey('periodTotal', '!'), lt: toKey('periodTotal', '~') })
+      .on('error', self.emit.bind(this, 'error'))
+      .pipe(through2.obj(function onChunk (chunk, enc, callback) {
+        batch = batch.del(chunk.toString())
+        if (++i < 1000)
+          return callback()
+        i = 0
+        batch.write(callback)
+        batch = self._db.batch()
+      }))
+      .on('error', self.emit.bind(this, 'error'))
+      .on('finish', function onFinish () {
+        if (i !== 0)
+          return batch.write(callback)
+        // TODO: clean up a dangling batch?
+        callback()
+      })
+  }
+
   function onPackageChunk (chunk, enc, callback) {
     var pkg = String(chunk)
 
@@ -102,7 +125,7 @@ NpmDownloadDb.prototype.rank = function rank () {
       if (err)
         return callback(err)
 
-      key = toKey('periodTotal', self._rankPeriod, nowS, leftPad(count, 12, '0'), pkg)
+      key = toKey('periodTotal', leftPad(count, 12, '0'), pkg)
       value = { package: pkg, count: count }
       if (self.allPackages)
         value.packageCount = self.allPackages.length
@@ -113,10 +136,14 @@ NpmDownloadDb.prototype.rank = function rank () {
   }
 
   function onPackageFinish () {
-    self._db.valueStream({ gte: toKey('periodTotal', self._rankPeriod, nowS), reverse: true })
-      .on('error', this.emit.bind(this, 'error'))
+    self._db.valueStream({
+          gt: toKey('periodTotal', '!')
+        , lt: toKey('periodTotal', '~')
+        , reverse: true
+      })
+      .on('error', self.emit.bind(this, 'error'))
       .pipe(through2.obj(onRankChunk))
-      .on('error', this.emit.bind(this, 'error'))
+      .on('error', self.emit.bind(this, 'error'))
       .on('finish', onRankFinish)
   }
 
@@ -137,20 +164,23 @@ NpmDownloadDb.prototype.rank = function rank () {
       batchSize++ // when packages have the same rank we can jump forward by that many for the next lowest
 
     prevEntry = entry
-
     value = JSON.stringify({ package: entry.package, rank: curRank, day: nowS, count: entry.count })
     self._db.put(toKey('rank', entry.package, nowS), value, callback)
   }
 
   function onRankFinish () {
-    self.emit('ranked')
+    clean(function afterClean () {
+      self.emit('ranked')
+    })
   }
 
-  this._db.valueStream({ gte: toKey('package', '!') })
-    .on('error', this.emit.bind(this, 'error'))
-    .pipe(through2.obj(onPackageChunk))
-    .on('error', this.emit.bind(this, 'error'))
-    .on('finish', onPackageFinish)
+  clean(function afterClean () {
+    self._db.valueStream({ gte: toKey('package', '!') })
+      .on('error', self.emit.bind(this, 'error'))
+      .pipe(through2.obj(onPackageChunk))
+      .on('error', self.emit.bind(this, 'error'))
+      .on('finish', onPackageFinish)
+  })
 }
 
 
