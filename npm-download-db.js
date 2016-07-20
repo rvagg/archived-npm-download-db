@@ -14,6 +14,8 @@ function toKey () {
 
 
 function NpmDownloadDb (db, options) {
+  var self = this
+
   if (!(this instanceof NpmDownloadDb))
     return new NpmDownloadDb(db, options)
 
@@ -24,6 +26,17 @@ function NpmDownloadDb (db, options) {
 
   this._db = db
   this._rankPeriod = options && typeof options.rankPeriod == 'number' ? options.rankPeriod : defaultRankPeriod
+
+  this._db.get(toKey('allPackages'), function afterGet (err, value) {
+    if (err) {
+      if (!err.notFound)
+        self.emit('error', err)
+      return
+    }
+    try {
+      self.allPackages = JSON.parse(value)
+    } catch (err) {} // ignorable, not too important
+  })
 }
 
 
@@ -56,6 +69,10 @@ NpmDownloadDb.prototype.update = function update (options) {
 
   function finish () {
     self.allPackages = packages
+    self._db.put(toKey('allPackages'), JSON.stringify(packages), function afterPut (err) {
+      if (err)
+        return self.emit('error', err)
+    })
     self.emit('updated')
   }
 
