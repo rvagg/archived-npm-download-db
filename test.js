@@ -62,21 +62,22 @@ function onUpdated () {
 
 
 function onRanked () {
-  rankedCalls++
+  if (++rankedCalls < 4)
+    return setTimeout(db.rank.bind(db, 500)) // do it a few times to see if we can screw up overlapping ranks
 
   clearTimeout(timeout)
   final()
 }
 
 
-timeout = setTimeout(final, 5000)
+timeout = setTimeout(final, 10000)
 
 
 function final () {
   var nowS = moment().utc().add(-1, 'days').format('YYYY-MM-DD')
 
   assert.equal(1, updatedCalls, 'correct number of "updated" events')
-  assert.equal(1, rankedCalls, 'correct number of "ranked" events')
+  assert.equal(4, rankedCalls, 'correct number of "ranked" events')
 
   db.packageCount('foobar1', moment().utc().add(-10, 'days').toDate(), function afterCount (err, count) {
     assert.ifError(err)
@@ -110,9 +111,9 @@ function final () {
   db.packageCounts('foobar1', moment().utc().add(-11, 'days').toDate(), moment().utc().add(-9, 'days').toDate(), function afterCount (err, counts) {
     assert.ifError(err)
     assert.deepEqual([
-        { day: moment().utc().add(-11, 'days').format('YYYY-MM-DD'), count: 0 }
+        { day: moment().utc().add(-11, 'days').format('YYYY-MM-DD'), count: 0   }
       , { day: moment().utc().add(-10, 'days').format('YYYY-MM-DD'), count: 100 }
-      , { day: moment().utc().add(-9, 'days').format('YYYY-MM-DD'),  count: 0 }
+      , { day: moment().utc().add(-9, 'days').format('YYYY-MM-DD'),  count: 0   }
     ], counts)
   })
 
@@ -128,6 +129,8 @@ function final () {
     assert.equal('nan', rankData.package, 'correct package name (' + rankData.package + ')')
     assert.equal(1, rankData.rank, 'correct rank (' + rankData.rank + ')')
     assert.equal(nowS, rankData.day, 'correct ranking day')
+
+    assert.equal(db.periodAllTotal, rankData.count + 600) // whatever nan has plus 600 fakes
   })
   db.packageRank('foobar1', function afterRank (err, rankData) {
     assert.ifError(err)
@@ -152,9 +155,35 @@ function final () {
     assert.equal(nowS, rankData.day, 'correct ranking day')
   })
 
-  setTimeout(function t () {
-    db.close(function afterClose () {
-      rimraf.sync(dbdir)
-    })
-  }, 500) // arbitrary but slow enough
+  db.topPackages(1000, function afterTop (err, data) {
+    var d
+
+    assert.ifError(err)
+
+    assert.equal(4, data.length, 'correct number of packages')
+
+    assert.equal('nan', data[0].package, 'correct package name (' + data[0].package + ')')
+    assert.equal(1, data[0].rank, 'correct rank (' + data[0].rank + ')')
+    assert.equal(nowS, data[0].day, 'correct ranking day')
+
+    d = data[1].package == 'foobar1' ? 1 : 2 // could be either, same rank
+    assert.equal('foobar1', data[d].package, 'correct package name (' + data[d].package + ')')
+    assert.equal(2, data[d].rank, 'correct rank (' + data[d].rank + ')')
+    assert.equal(nowS, data[d].day, 'correct ranking day')
+
+    d = d == 1 ? 2 : 1 // the other one
+    assert.equal('foobar3', data[d].package, 'correct package name (' + data[d].package + ')')
+    assert.equal(2, data[d].rank, 'correct rank (' + data[d].rank + ')')
+    assert.equal(nowS, data[d].day, 'correct ranking day')
+
+    assert.equal('foobar4', data[3].package, 'correct package name (' + data[3].package + ')')
+    assert.equal(4, data[3].rank, 'correct rank (' + data[3].rank + ')')
+    assert.equal(nowS, data[3].day, 'correct ranking day')
+
+    setTimeout(function t () {
+      db.close(function afterClose () {
+        rimraf.sync(dbdir)
+      })
+    }, 500) // arbitrary but slow enough
+  })
 }

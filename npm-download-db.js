@@ -2,6 +2,8 @@ var downloadCountCollector = require('npm-download-count-collector')
   , moment                 = require('moment')
   , through2               = require('through2')
   , leftPad                = require('left-pad')
+  , once                   = require('once')
+  , listStream             = require('list-stream')
   , inherits               = require('inherits')
   , EventEmitter           = require('events')
 
@@ -27,16 +29,29 @@ function NpmDownloadDb (db, options) {
   this._db = db
   this._rankPeriod = options && typeof options.rankPeriod == 'number' ? options.rankPeriod : defaultRankPeriod
 
-  this._db.get(toKey('allPackages'), function afterGet (err, value) {
-    if (err) {
-      if (!err.notFound)
-        self.emit('error', err)
-      return
-    }
-    try {
-      self.allPackages = JSON.parse(value)
-    } catch (err) {} // ignorable, not too important
-  })
+  function loadProperty (property, parse) {
+    self._db.get(toKey(property), function afterGet (err, value) {
+      if (err) {
+        if (!err.notFound)
+          self.emit('error', err)
+        return
+      }
+
+      try {
+        self[property] = JSON.parse(value)
+      } catch (err) {} // ignorable, not too important
+    })
+  }
+
+  function _parseInt (value) {
+    var valueI = parseInt(value, 10)
+
+    return valueI == value ? valueI : undefined
+  }
+
+  loadProperty('allPackages', function parse (value) { return JSON.parse(value) })
+  loadProperty('periodAllTotal', _parseInt)
+  loadProperty('lastRankTimestamp', _parseInt)
 }
 
 
@@ -85,22 +100,29 @@ NpmDownloadDb.prototype.update = function update (options) {
 
 
 NpmDownloadDb.prototype.rank = function rank () {
-  var self      = this
-    , start     = moment().utc().add(-(this._rankPeriod) - 1, 'days').toDate()
-    , end       = moment().utc().add(-1, 'day').toDate()
-    , nowS      = moment(end).format('YYYY-MM-DD')
-    , curRank   = 1
-    , batchSize = 0
+  var self           = this
+    , start          = moment().utc().add(-(this._rankPeriod) - 1, 'days').toDate()
+    , end            = moment().utc().add(-1, 'day').toDate()
+    , nowS           = moment(end).format('YYYY-MM-DD')
+    , rankTimestamp  = Date.now()
+    , periodAllTotal = 0
+    , curRank        = 1
+    , batchSize      = 0
     , prevEntry
 
   function clean (callback) {
     var batch = self._db.batch()
       , i     = 0
+      , tskey = toKey('periodTotal', rankTimestamp)
 
     self._db.keyStream({ gt: toKey('periodTotal', '!'), lt: toKey('periodTotal', '~') })
       .on('error', self.emit.bind(this, 'error'))
       .pipe(through2.obj(function onChunk (chunk, enc, callback) {
-        batch = batch.del(chunk.toString())
+        chunk = chunk.toString()
+        if (chunk.indexOf(tskey) === 0) // part of this batch
+          return callback()
+
+        batch = batch.del(chunk)
         if (++i < 1000)
           return callback()
         i = 0
@@ -125,7 +147,9 @@ NpmDownloadDb.prototype.rank = function rank () {
       if (err)
         return callback(err)
 
-      key = toKey('periodTotal', leftPad(count, 12, '0'), pkg)
+      periodAllTotal += count
+
+      key = toKey('periodTotal', rankTimestamp, leftPad(count, 12, '0'), pkg)
       value = { package: pkg, count: count }
       if (self.allPackages)
         value.packageCount = self.allPackages.length
@@ -136,9 +160,15 @@ NpmDownloadDb.prototype.rank = function rank () {
   }
 
   function onPackageFinish () {
+    self.periodAllTotal = periodAllTotal
+    self._db.put(toKey('periodAllTotal'), periodAllTotal.toString(), function afterPut (err) {
+      if (err)
+        return self.emit('error', err)
+    })
+
     self._db.valueStream({
-          gt: toKey('periodTotal', '!')
-        , lt: toKey('periodTotal', '~')
+          gt: toKey('periodTotal', rankTimestamp, '!')
+        , lt: toKey('periodTotal', rankTimestamp, '~')
         , reverse: true
       })
       .on('error', self.emit.bind(this, 'error'))
@@ -169,18 +199,22 @@ NpmDownloadDb.prototype.rank = function rank () {
   }
 
   function onRankFinish () {
+    self.lastRankTimestamp = rankTimestamp
+    self._db.put(toKey('lastRankTimestamp'), rankTimestamp.toString(), function afterPut (err) {
+      if (err)
+        return self.emit('error', err)
+    })
+
     clean(function afterClean () {
       self.emit('ranked')
     })
   }
 
-  clean(function afterClean () {
-    self._db.valueStream({ gte: toKey('package', '!') })
-      .on('error', self.emit.bind(this, 'error'))
-      .pipe(through2.obj(onPackageChunk))
-      .on('error', self.emit.bind(this, 'error'))
-      .on('finish', onPackageFinish)
-  })
+  self._db.valueStream({ gte: toKey('package', '!'), lte: toKey('package', '~') })
+    .on('error', self.emit.bind(this, 'error'))
+    .pipe(through2.obj(onPackageChunk))
+    .on('error', self.emit.bind(this, 'error'))
+    .on('finish', onPackageFinish)
 }
 
 
@@ -257,6 +291,46 @@ NpmDownloadDb.prototype.packageRank = function packageRank (pkg, callback) {
       callback && callback(new Error('no rank for package (' + pkg + ') found'))
       callback = null
     })
+}
+
+
+NpmDownloadDb.prototype.topPackages = function topPackages (limit, callback) {
+  var self = this
+
+  if (typeof limit == 'function') {
+    callback = limit
+    limit = 100
+  } else if (typeof limit != 'number')
+    throw new TypeError('provide a limit (number) or none at all')
+
+  callback = once(callback)
+
+  if (!this.lastRankTimestamp)
+    return callback(null, [])
+
+  function pkgToRank (chunk, enc, callback) {
+    var entry
+
+    try {
+      entry = JSON.parse(chunk)
+    } catch (err) {
+      return callback(err)
+    }
+
+    self.packageRank(entry.package, callback)
+  }
+
+  this._db.valueStream({
+      gt      : toKey('periodTotal', this.lastRankTimestamp, '!')
+    , lt      : toKey('periodTotal', this.lastRankTimestamp, '~')
+    , reverse : true
+    , limit   : Math.min(1000, limit)
+  })
+  .on('error', callback)
+  .pipe(through2.obj(pkgToRank))
+  .on('error', callback)
+  .pipe(listStream.obj(callback))
+  .on('error', callback)
 }
 
 

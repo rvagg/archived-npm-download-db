@@ -42,10 +42,19 @@ Retrieve the latest rank for a given package. The callback will be provided eith
 * `rank`: the ranking of the package over the latest period for which a ranking was calculated for this package
 * `day`: the day on which the ranking was taken (recorded as the day prior to the `rank()` operation)
 * `count`: the download count for the package during the period for which the ranking was considered
+* `total`: the total number of packages considered for the ranking this data was produced from
+
+### `db.topPackages([ count, ]callback)`
+
+Generate a list of top ranked packages. By default `count` is `100` if not provided. If provided, `count` will be capped to a maximum of `1000`. The callback will receive either an `Error` or an `Array` containing a rank-sorted list of rank objects as returned by `db.packageRank()` (above).
 
 ### `db.allPackages`
 
-Contains an `Array` with the names of all of the packages for which download data could be fetched during the last update operation (will be undefined until an update is performed).
+Contains an `Array` with the names of all of the packages for which download data could be fetched during the last update operation (will be undefined until an update is performed). This value may be cached across instances.
+
+### `db.periodAllTotal`
+
+Contains an integer representing the total number of downloads during the ranking period _last used_ for ranking. This value may be cached across instances.
 
 ## License
 
